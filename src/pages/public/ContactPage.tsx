@@ -1,0 +1,176 @@
+import { useEffect, useState } from 'react'
+import type { Contact, SiteSettings } from '../../lib/types'
+import { supabase } from '../../lib/supabase'
+import { useToast } from '../../lib/toast'
+import { useOutletContext } from 'react-router-dom'
+
+export default function ContactPage() {
+  const { settings } = useOutletContext<{ settings: SiteSettings | null }>()
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [loading, setLoading] = useState(true)
+  const { show } = useToast()
+  const [submitting, setSubmitting] = useState(false)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [form, setForm] = useState({
+    name: '', email: '', subject: '', message: '', website: '',
+  })
+
+  useEffect(() => {
+    supabase
+      .from('contacts')
+      .select('*')
+      .eq('is_public', true)
+      .order('sort_order')
+      .then(({ data }) => {
+        setContacts(data as Contact[] ?? [])
+        setLoading(false)
+      })
+  }, [])
+
+  function validate() {
+    const e: Record<string, string> = {}
+    if (!form.name.trim()) e.name = 'Namn är obligatoriskt'
+    if (!form.email.trim()) e.email = 'E-post är obligatoriskt'
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Ogiltig e-postadress'
+    if (!form.message.trim()) e.message = 'Meddelande är obligatoriskt'
+    setErrors(e)
+    return Object.keys(e).length === 0
+  }
+
+  async function handleSubmit(ev: React.FormEvent) {
+    ev.preventDefault()
+    if (form.website) return
+    if (!validate()) return
+    setSubmitting(true)
+    const { error } = await supabase.from('contact_messages').insert({
+      name: form.name,
+      email: form.email,
+      subject: form.subject,
+      message: form.message,
+      status: 'unread',
+    })
+    setSubmitting(false)
+    if (error) {
+      show('Något gick fel. Försök igen senare.', 'error')
+    } else {
+      show('Tack! Ditt meddelande har skickats.', 'success')
+      setForm({ name: '', email: '', subject: '', message: '', website: '' })
+    }
+  }
+
+  return (
+    <div className="container fade-in">
+      <div className="page-header">
+        <h1>Kontakt</h1>
+        <p>Kontakta initiativet för frågor, information eller samarbete.</p>
+      </div>
+
+      <div className="contact-grid" style={{ marginBottom: 'var(--space-9)' }}>
+        <div>
+          <div className="contact-info-card">
+            <h3>Kontaktpersoner</h3>
+            {loading ? (
+              <p className="text-muted">Laddar…</p>
+            ) : contacts.length === 0 ? (
+              <p className="text-muted">Inga kontaktpersoner är tillgängliga för tillfället.</p>
+            ) : (
+              contacts.map(c => (
+                <div key={c.id} className="contact-person">
+                  <h4>{c.name}</h4>
+                  {c.role && <p>{c.role}</p>}
+                  {c.email && <p><a href={`mailto:${c.email}`}>{c.email}</a></p>}
+                  {c.phone && <p>{c.phone}</p>}
+                </div>
+              ))
+            )}
+          </div>
+
+          {settings?.social_links && Object.entries(settings.social_links).length > 0 && (
+            <div className="contact-info-card" style={{ marginTop: 'var(--space-5)' }}>
+              <h3>Sociala medier</h3>
+              <div style={{ display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
+                {Object.entries(settings.social_links).map(([key, url]) => (
+                  <a key={key} href={url} target="_blank" rel="noopener noreferrer" className="section-link" style={{ textTransform: 'capitalize' }}>
+                    {key} →
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {settings?.privacy_text && (
+            <div className="contact-info-card" style={{ marginTop: 'var(--space-5)' }}>
+              <h3>Integritet</h3>
+              <p className="text-muted" style={{ fontSize: '0.9rem' }}>{settings.privacy_text}</p>
+            </div>
+          )}
+        </div>
+
+        <div>
+          <form onSubmit={handleSubmit} className="card" noValidate>
+            <h3 style={{ marginBottom: 'var(--space-5)' }}>Kontaktformulär</h3>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="name">Namn *</label>
+              <input
+                id="name"
+                className="form-input"
+                type="text"
+                value={form.name}
+                onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))}
+                aria-invalid={!!errors.name}
+              />
+              {errors.name && <p className="form-error">{errors.name}</p>}
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="email">E-post *</label>
+              <input
+                id="email"
+                className="form-input"
+                type="email"
+                value={form.email}
+                onChange={e => setForm(prev => ({ ...prev, email: e.target.value }))}
+                aria-invalid={!!errors.email}
+              />
+              {errors.email && <p className="form-error">{errors.email}</p>}
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="subject">Ämne</label>
+              <input
+                id="subject"
+                className="form-input"
+                type="text"
+                value={form.subject}
+                onChange={e => setForm(prev => ({ ...prev, subject: e.target.value }))}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="message">Meddelande *</label>
+              <textarea
+                id="message"
+                className="form-textarea"
+                rows={5}
+                value={form.message}
+                onChange={e => setForm(prev => ({ ...prev, message: e.target.value }))}
+                aria-invalid={!!errors.message}
+              />
+              {errors.message && <p className="form-error">{errors.message}</p>}
+            </div>
+
+            <div style={{ position: 'absolute', left: '-9999px' }} aria-hidden="true">
+              <label htmlFor="website">Lämna tomt</label>
+              <input id="website" type="text" value={form.website} onChange={e => setForm(prev => ({ ...prev, website: e.target.value }))} tabIndex={-1} autoComplete="off" />
+            </div>
+
+            <button type="submit" className="btn btn-primary" disabled={submitting}>
+              {submitting ? 'Skickar…' : 'Skicka meddelande'}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  )
+}
